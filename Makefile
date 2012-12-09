@@ -31,6 +31,8 @@ all: build docs
 
 build: build-prep
 	cp -p $(SHELL_SRC_DIR)/$(PROG) $(BUILD_DIR)
+	cp -p $(SHELL_SRC_DIR)/$(PROG)_collect $(BUILD_DIR)
+	cp -p $(SHELL_SRC_DIR)/$(PROG)_testsuite $(BUILD_DIR)
 
 build-clean:
 	rm -fr $(BUILD_DIR)
@@ -76,6 +78,8 @@ test: @echo "executing $(PROG) unit tests"
 dist: dist-clean build docs
 	@mkdir $(DIST_DIR)
 	cp -p $(BUILD_DIR)/$(PROG) $(DIST_DIR)
+	cp -p $(BUILD_DIR)/$(PROG)_collect $(DIST_DIR)
+	cp -p $(BUILD_DIR)/$(PROG)_testsuite $(DIST_DIR)
 	cp -p $(BUILD_DIR)/$(PROG).html $(DIST_DIR)
 
 clean: build-clean test-clean

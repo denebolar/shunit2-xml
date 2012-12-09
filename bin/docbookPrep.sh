@@ -21,7 +21,7 @@ MY_BASE=`basename "$0"`
 MY_DIR=`dirname "$0"`
 
 # load shlib
-. "${MY_DIR}/../lib/sh/shlib"
+. "${MY_DIR}/../lib/shlib"
 
 BASE_DIR=`shlib_relToAbsPath "${MY_DIR}/.."`
 DL_DIR="${BASE_DIR}/tmp"

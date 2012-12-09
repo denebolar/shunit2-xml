@@ -24,21 +24,56 @@ SHUNIT_TRUE=0
 SHUNIT_FALSE=1
 SHUNIT_ERROR=2
 
-_shunit_warn() { echo "shunit2:WARN $@" >&2; }
-_shunit_error() { echo "shunit2:ERROR $@" >&2; }
-_shunit_fatal() { echo "shunit2:FATAL $@" >&2; }
+#
+# some convenient log functions
+#
+
+# log an expected failure into the test case error buffer
+_shunit_log_fail()
+{
+  _shunit_msg_=$1
+
+  __shunit_case_errors="${__shunit_case_errors}<failure type=\"${__SHUNIT_ASSERT_MSG_PREFIX}\" message=\"${_shunit_msg_}\"/>"
+
+  unset _shunit_msg_
+}
+
+# log an unexpected failure into the test case error buffer
+_shunit_log_error() 
+{
+  _level_=$1
+  shift
+
+  __shunit_case_errors="${__shunit_case_errors}<error type=\"${_level_}\">$@</error>";
+
+  unset _level_
+}
+
+_shunit_warn() { _shunit_log_error "WARN" $@; }
+_shunit_error() { _shunit_log_error "ERROR" $@; }
+_shunit_fatal() { _shunit_log_error "FATAL" $@; }
+
+# fake exit call to prevent scripts to echo escape prematurely
+# @NOTES:
+# 1. keep the function name for the trick to work
+# 2. tested script must be called directy by /bin/bash not a link to a shell, shabang is accepted
+exit()
+{
+  echo "exit builtin called with rc $1"
+}
+alias exit='exit'
 
 # specific shell checks
 if [ -n "${ZSH_VERSION:-}" ]; then
   setopt |grep "^shwordsplit$" >/dev/null
   if [ $? -ne ${SHUNIT_TRUE} ]; then
     _shunit_fatal 'zsh shwordsplit option is required for proper operation'
-    exit ${SHUNIT_ERROR}
+    builtin exit ${SHUNIT_ERROR}
   fi
   if [ -z "${SHUNIT_PARENT:-}" ]; then
     _shunit_fatal "zsh does not pass \$0 through properly. please declare \
 \"SHUNIT_PARENT=\$0\" before calling shUnit2"
-    exit ${SHUNIT_ERROR}
+    builtin exit ${SHUNIT_ERROR}
   fi
 fi
 
@@ -46,7 +81,7 @@ fi
 # constants
 #
 
-__SHUNIT_ASSERT_MSG_PREFIX='ASSERT:'
+__SHUNIT_ASSERT_MSG_PREFIX='shunit.ASSERT'
 __SHUNIT_PARENT=${SHUNIT_PARENT:-$0}
 
 # set the constants readonly
@@ -67,6 +102,11 @@ unset shunit_constant_ shunit_constants_ shunit_ro_opts_
 # variables
 __shunit_skip=${SHUNIT_FALSE}
 __shunit_suite=''
+__shunit_suite_name=''
+__shunit_cases=''
+__shunit_case_errors=''
+__shunit_system_out=''
+__shunit_system_err=''
 
 # counts of tests
 __shunit_testSuccess=${SHUNIT_TRUE}
@@ -79,6 +119,7 @@ __shunit_assertsTotal=0
 __shunit_assertsPassed=0
 __shunit_assertsFailed=0
 __shunit_assertsSkipped=0
+__shunit_assertsError=0
 
 __shunit_lineno=''
 __shunit_reportGenerated=${SHUNIT_FALSE}
@@ -114,8 +155,8 @@ assertEquals()
 {
   ${_SHUNIT_LINENO_}
   if [ $# -lt 2 -o $# -gt 3 ]; then
-    _shunit_error "assertEquals() requires two or three arguments; $# given"
-    _shunit_error "1: ${1:+$1} 2: ${2:+$2} 3: ${3:+$3}"
+    _shunit_assertError "assertEquals() requires two or three arguments; $# given \
+1: ${1:+$1} 2: ${2:+$2} 3: ${3:+$3}"
     return ${SHUNIT_ERROR}
   fi
   _shunit_shouldSkip && return ${SHUNIT_TRUE}
@@ -165,7 +206,7 @@ assertNotEquals()
 {
   ${_SHUNIT_LINENO_}
   if [ $# -lt 2 -o $# -gt 3 ]; then
-    _shunit_error "assertNotEquals() requires two or three arguments; $# given"
+    _shunit_assertError "assertNotEquals() requires two or three arguments; $# given"
     return ${SHUNIT_ERROR}
   fi
   _shunit_shouldSkip && return ${SHUNIT_TRUE}
@@ -213,7 +254,7 @@ assertNull()
 {
   ${_SHUNIT_LINENO_}
   if [ $# -lt 1 -o $# -gt 2 ]; then
-    _shunit_error "assertNull() requires one or two arguments; $# given"
+    _shunit_assertError "assertNull() requires one or two arguments; $# given"
     return ${SHUNIT_ERROR}
   fi
   _shunit_shouldSkip && return ${SHUNIT_TRUE}
@@ -254,7 +295,7 @@ assertNotNull()
 {
   ${_SHUNIT_LINENO_}
   if [ $# -gt 2 ]; then  # allowing 0 arguments as $1 might actually be null
-    _shunit_error "assertNotNull() requires one or two arguments; $# given"
+    _shunit_assertError "assertNotNull() requires one or two arguments; $# given"
     return ${SHUNIT_ERROR}
   fi
   _shunit_shouldSkip && return ${SHUNIT_TRUE}
@@ -295,7 +336,7 @@ assertSame()
 {
   ${_SHUNIT_LINENO_}
   if [ $# -lt 2 -o $# -gt 3 ]; then
-    _shunit_error "assertSame() requires one or two arguments; $# given"
+    _shunit_assertError "assertSame() requires one or two arguments; $# given"
     return ${SHUNIT_ERROR}
   fi
   _shunit_shouldSkip && return ${SHUNIT_TRUE}
@@ -337,7 +378,7 @@ assertNotSame()
 {
   ${_SHUNIT_LINENO_}
   if [ $# -lt 2 -o $# -gt 3 ]; then
-    _shunit_error "assertNotSame() requires two or three arguments; $# given"
+    _shunit_assertError "assertNotSame() requires two or three arguments; $# given"
     return ${SHUNIT_ERROR}
   fi
   _shunit_shouldSkip && return ${SHUNIT_TRUE}
@@ -386,7 +427,7 @@ assertTrue()
 {
   ${_SHUNIT_LINENO_}
   if [ $# -gt 2 ]; then
-    _shunit_error "assertTrue() takes one two arguments; $# given"
+    _shunit_assertError "assertTrue() takes one two arguments; $# given"
     return ${SHUNIT_ERROR}
   fi
   _shunit_shouldSkip && return ${SHUNIT_TRUE}
@@ -456,7 +497,7 @@ assertFalse()
 {
   ${_SHUNIT_LINENO_}
   if [ $# -lt 1 -o $# -gt 2 ]; then
-    _shunit_error "assertFalse() quires one or two arguments; $# given"
+    _shunit_assertError "assertFalse() quires one or two arguments; $# given"
     return ${SHUNIT_ERROR}
   fi
   _shunit_shouldSkip && return ${SHUNIT_TRUE}
@@ -519,7 +560,7 @@ fail()
 {
   ${_SHUNIT_LINENO_}
   if [ $# -gt 1 ]; then
-    _shunit_error "fail() requires one or two arguments; $# given"
+    _shunit_assertError "fail() requires one or two arguments; $# given"
     return ${SHUNIT_ERROR}
   fi
   _shunit_shouldSkip && return ${SHUNIT_TRUE}
@@ -561,7 +602,7 @@ failNotEquals()
 {
   ${_SHUNIT_LINENO_}
   if [ $# -lt 2 -o $# -gt 3 ]; then
-    _shunit_error "failNotEquals() requires one or two arguments; $# given"
+    _shunit_assertError "failNotEquals() requires one or two arguments; $# given"
     return ${SHUNIT_ERROR}
   fi
   _shunit_shouldSkip && return ${SHUNIT_TRUE}
@@ -574,7 +615,7 @@ failNotEquals()
   shunit_unexpected_=$1
   shunit_actual_=$2
 
-  _shunit_assertFail "${shunit_message_:+${shunit_message_} }expected:<${shunit_unexpected_}> but was:<${shunit_actual_}>"
+  _shunit_assertFail "${shunit_message_:+${shunit_message_} }expected:&lt;${shunit_unexpected_}&gt; but was:&lt;${shunit_actual_}&gt;"
 
   unset shunit_message_ shunit_unexpected_ shunit_actual_
   return ${SHUNIT_FALSE}
@@ -602,7 +643,7 @@ failSame()
 {
   ${_SHUNIT_LINENO_}
   if [ $# -lt 2 -o $# -gt 3 ]; then
-    _shunit_error "failSame() requires two or three arguments; $# given"
+    _shunit_assertError "failSame() requires two or three arguments; $# given"
     return ${SHUNIT_ERROR}
   fi
   _shunit_shouldSkip && return ${SHUNIT_TRUE}
@@ -643,7 +684,7 @@ failNotSame()
 {
   ${_SHUNIT_LINENO_}
   if [ $# -lt 2 -o $# -gt 3 ]; then
-    _shunit_error "failNotEquals() requires one or two arguments; $# given"
+    _shunit_assertError "failNotEquals() requires one or two arguments; $# given"
     return ${SHUNIT_ERROR}
   fi
   _shunit_shouldSkip && return ${SHUNIT_TRUE}
@@ -902,7 +943,7 @@ _shunit_mktempDir()
   _shunit_tmpDir_="${TMPDIR:-/tmp}/shunit.${_shunit_random_}"
   ( umask 077 && mkdir "${_shunit_tmpDir_}" ) || {
     _shunit_fatal 'could not create temporary directory! exiting'
-    exit ${SHUNIT_FALSE}
+    builtin exit ${SHUNIT_FALSE}
   }
 
   echo ${_shunit_tmpDir_}
@@ -916,7 +957,7 @@ _shunit_mktempFunc()
     _shunit_file_="${__shunit_tmpDir}/${_shunit_func_}"
     cat <<EOF >"${_shunit_file_}"
 #! /bin/sh
-exit ${SHUNIT_TRUE}
+builtin exit ${SHUNIT_TRUE}
 EOF
     chmod +x "${_shunit_file_}"
   done
@@ -947,11 +988,9 @@ _shunit_cleanup()
     # disable EXIT trap
     trap 0
     # add 128 to signal and exit
-    exit `expr ${_shunit_signal_} + 128`
+    builtin exit `expr ${_shunit_signal_} + 128`
   elif [ ${__shunit_reportGenerated} -eq ${SHUNIT_FALSE} ] ; then
-    _shunit_assertFail 'Unknown failure encountered running a test'
-    _shunit_generateReport
-    exit ${SHUNIT_ERROR}
+    _shunit_assertError 'Unknown failure encountered running a test'
   fi
 
   unset _shunit_name_ _shunit_signal_
@@ -960,8 +999,20 @@ _shunit_cleanup()
 # The actual running of the tests happens here.
 _shunit_execSuite()
 {
-  for _shunit_test_ in ${__shunit_suite}; do
+  # create buffer files for stdout and stderr
+  __shunit_system_out=$(mktemp 'shunit-out.XXXX')
+  __shunit_system_err=$(mktemp 'shunit-err.XXXX')
+
+  # alter file descriptors
+  exec 6>&1 7>&2
+  exec >> ${__shunit_system_out} 2>> ${__shunit_system_err}
+
+  # loop over test cases
+  for _shunit_case_ in ${__shunit_suite}; do
     __shunit_testSuccess=${SHUNIT_TRUE}
+
+    # reset test cases errors buffer
+    __shunit_case_errors=''
 
     # disable skipping
     endSkipping
@@ -969,9 +1020,26 @@ _shunit_execSuite()
     # execute the per-test setup function
     setUp
 
+    # store the test case execution start time
+    _shunit_case_starttime_=$(date '+%s.%N')
+
     # execute the test
-    echo "${_shunit_test_}"
-    eval ${_shunit_test_}
+    eval ${_shunit_case_}
+
+    # store the test case execution end time and duration
+    _shunit_case_endtime_=$(date '+%s.%N')
+    _shunit_case_duration_=$(echo ${_shunit_case_endtime_} - ${_shunit_case_starttime_} | bc)
+
+    # check errors and output test case status
+    __shunit_cases="${__shunit_cases}
+  <testcase classname=\"${__shunit_suite_name}\" name=\"${_shunit_case_}\" time=\"${_shunit_case_duration_}\""
+
+    if [ -z "${__shunit_case_errors}" ]
+    then
+      __shunit_cases="${__shunit_cases}/>"
+    else
+      __shunit_cases="${__shunit_cases}>${__shunit_case_errors}</testcase>"
+    fi
 
     # execute the per-test tear-down function
     tearDown
@@ -984,47 +1052,35 @@ _shunit_execSuite()
     fi
   done
 
-  unset _shunit_test_
+  # restore file descriptors
+  exec 1>&6 2>&7
+  exec 6>&- 7>&-
+
+  unset _shunit_case_
 }
 
 # This function exits shUnit2 with the appropriate error code and OK/FAILED
 # message.
 _shunit_generateReport()
 {
-  _shunit_ok_=${SHUNIT_TRUE}
+  _shunit_failures_=${__shunit_assertsFailed}
+  _shunit_skipped_=${__shunit_assertsSkipped}
+  _shunit_errors_=${__shunit_assertsError}
 
-  # if no exit code was provided one, determine an appropriate one
-  [ ${__shunit_testsFailed} -gt 0 \
-      -o ${__shunit_testSuccess} -eq ${SHUNIT_FALSE} ] \
-          && _shunit_ok_=${SHUNIT_FALSE}
+  cat << EOF
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite errors="${_shunit_errors_}" failures="${_shunit_failures_}" hostname="$(hostname)" name="${__shunit_suite_name}" tests="${__shunit_testsTotal}" time="${__shunit_suite_duration}" timestamp="${__shunit_suite_timestamp}">
+  <properties>${_shunit_env_}</properties>
+  ${__shunit_cases}
+  <system-out><![CDATA[$(cat ${__shunit_system_out})]]></system-out>
+  <system-err><![CDATA[$(cat ${__shunit_system_err})]]></system-err>
+</testsuite>
+EOF
 
-  echo
-  if [ ${__shunit_testsTotal} -eq 1 ]; then
-    echo "Ran ${__shunit_testsTotal} test."
-  else
-    echo "Ran ${__shunit_testsTotal} tests."
-  fi
+  # cleanup buffer files
+  rm -f ${__shunit_system_out}
+  rm -f ${__shunit_system_err}
 
-  _shunit_failures_=''
-  _shunit_skipped_=''
-  [ ${__shunit_assertsFailed} -gt 0 ] \
-      && _shunit_failures_="failures=${__shunit_assertsFailed}"
-  [ ${__shunit_assertsSkipped} -gt 0 ] \
-      && _shunit_skipped_="skipped=${__shunit_assertsSkipped}"
-
-  if [ ${_shunit_ok_} -eq ${SHUNIT_TRUE} ]; then
-    _shunit_msg_='OK'
-    [ -n "${_shunit_skipped_}" ] \
-        && _shunit_msg_="${_shunit_msg_} (${_shunit_skipped_})"
-  else
-    _shunit_msg_="FAILED (${_shunit_failures_}"
-    [ -n "${_shunit_skipped_}" ] \
-        && _shunit_msg_="${_shunit_msg_},${_shunit_skipped_}"
-    _shunit_msg_="${_shunit_msg_})"
-  fi
-
-  echo
-  echo ${_shunit_msg_}
   __shunit_reportGenerated=${SHUNIT_TRUE}
 
   unset _shunit_failures_ _shunit_msg_ _shunit_ok_ _shunit_skipped_
@@ -1049,7 +1105,7 @@ _shunit_assertFail()
   __shunit_testSuccess=${SHUNIT_FALSE}
   __shunit_assertsFailed=`expr ${__shunit_assertsFailed} + 1`
   __shunit_assertsTotal=`expr ${__shunit_assertsTotal} + 1`
-  echo "${__SHUNIT_ASSERT_MSG_PREFIX}${_shunit_msg_}"
+  __shunit_case_errors="${__shunit_case_errors}<failure type=\"${__SHUNIT_ASSERT_MSG_PREFIX}\" message=\"${_shunit_msg_}\"/>"
 
   unset _shunit_msg_
 }
@@ -1059,6 +1115,18 @@ _shunit_assertSkip()
   __shunit_assertsSkipped=`expr ${__shunit_assertsSkipped} + 1`
   __shunit_assertsTotal=`expr ${__shunit_assertsTotal} + 1`
 }
+
+_shunit_assertError()
+{
+  _shunit_msg_=$1
+
+  __shunit_assertsError=`expr ${__shunit_assertsError} + 1`
+  __shunit_assertsTotal=`expr ${__shunit_assertsTotal} + 1`
+  _shunit_error "${__SHUNIT_ASSERT_MSG_PREFIX}: ${_shunit_msg_}"
+
+  unset _shunit_msg_
+}
+
 
 #------------------------------------------------------------------------------
 # main
@@ -1098,18 +1166,37 @@ if [ -z "${__shunit_suite}" ]; then
 fi
 unset shunit_func_ shunit_funcs_
 
+# get test suite name
+__shunit_suite_name=$(basename $0 | sed 's/\..*$//')
+
+# get environment
+_shunit_env_=$(env | sed 's!=!" value="!;s!^!<property name="!;s!$!"/>!')
+
+# store the test suite execution date and start time
+__shunit_suite_timestamp=$(date -u '+%Y-%m-%dT%T')
+__shunit_suite_starttime=$(date '+%s.%N')
+
 # execute the tests
 _shunit_execSuite
+
+# store the test suite execution end time and duration
+__shunit_suite_endtime=$(date '+%s.%N')
+__shunit_suite_duration=$(echo ${__shunit_suite_endtime} - ${__shunit_suite_starttime} | bc)
 
 # execute the oneTimeTearDown function (if it exists)
 oneTimeTearDown
 
 # generate the report
-_shunit_generateReport
+if [ -n "${SHUNIT_OUTPUTDIR}" ]
+then
+  _shunit_generateReport > "${SHUNIT_OUTPUTDIR}/TEST-${__shunit_suite_name}.xml"
+else
+  _shunit_generateReport
+fi
 
 # that's it folks
 [ ${__shunit_testsFailed} -eq 0 ]
-exit $?
+builtin exit $?
 
 #/**
 # </s:shelldoc>

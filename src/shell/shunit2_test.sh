@@ -38,16 +38,16 @@ while getopts 'e:hs:t:' opt; do
       val=`expr "${OPTARG}" : '[^=]*=\(.*\)'`
       if [ -z "${key}" -o -z "${val}" ]; then
         usage
-        exit 1
+        builtin exit 1
       fi
       eval "${key}='${val}'"
       export ${key}
       env="${env:+${env} }${key}"
       ;;
-    h) usage; exit 0 ;;  # output help
+    h) usage; builtin exit 0 ;;  # output help
     s) shells=${OPTARG} ;;  # list of shells to run
     t) tests=${OPTARG} ;;  # list of tests to run
-    *) usage; exit 1 ;;
+    *) usage; builtin exit 1 ;;
   esac
 done
 shift `expr ${OPTIND} - 1`
@@ -59,7 +59,7 @@ tests=${tests:-${TESTS}}
 # error checking
 if [ -z "${tests}" ]; then
   th_error 'no tests found to run; exiting'
-  exit 1
+  builtin exit 1
 fi
 
 cat <<EOF
